@@ -19,6 +19,25 @@ async function notifyDavid(r:{id:string,review_code:string,name:string,rating:nu
  if(!res.ok)throw new Error("SMS provider returned "+res.status);
  return true;
 }
+
+async function verifyHuman(token:string,ip:string){
+ const secret=Deno.env.get("TURNSTILE_SECRET_KEY");
+ if(!secret||!token||token.length>2048)return false;
+ const body=new URLSearchParams({secret,response:token});
+ if(ip)body.set("remoteip",ip);
+ const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify",{method:"POST",body,signal:AbortSignal.timeout(8000)});
+ if(!response.ok)return false;
+ const verification=await response.json();
+ return verification.success===true && (!verification.hostname||verification.hostname==="tallandsmallyardwork.com"||verification.hostname==="www.tallandsmallyardwork.com");
+}
+async function hmacNetwork(ip:string){
+ const salt=Deno.env.get("REVIEW_RATE_SALT");
+ if(!salt||salt.length<24||!ip)return "";
+ const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(salt),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ const bytes=new Uint8Array(await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(ip)));
+ return [...bytes].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response(null,{headers});
  if(req.headers.get("origin")&&req.headers.get("origin")!==origin)return reply({error:"Origin not permitted"},403);
@@ -28,13 +47,21 @@ Deno.serve(async req=>{
    if(error)throw error;return reply({reviews:data});
   }
   if(req.method==="POST"){
+   if((Number(req.headers.get("content-length")||"0")>6000))return reply({error:"Review too long"},413);
    const j=await req.json();
-   // Honeypot plus input validation. Add CAPTCHA and IP rate limiting before public launch.
+   // Honeypot, CAPTCHA verification, and atomic per-network rate limiting.
    if(j.website)return reply({ok:true});
    const name=String(j.name??"").trim(),comment=String(j.comment??"").trim(),rating=Number(j.rating);
    if(name.length<1||name.length>60||comment.length<10||comment.length>1000||!Number.isInteger(rating)||rating<1||rating>5)return reply({error:"Invalid review"},400);
    // The Edge Function is not production-ready without rate limiting/CAPTCHA.
    if(Deno.env.get("REVIEW_SUBMISSIONS_ENABLED")!=="true")return reply({error:"Reviews are not accepting submissions yet"},503);
+   const ip=(req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]||"").trim();
+   if(!await verifyHuman(String(j.turnstile_token||""),ip))return reply({error:"Please complete the anti-spam check"},400);
+   const networkKey=await hmacNetwork(ip);
+   if(!networkKey)return reply({error:"Review submissions not fully configured"},503);
+   const {data:allowed,error:rateError}=await db.rpc("take_review_rate_slot",{p_network_key:networkKey});
+   if(rateError)throw rateError;
+   if(!allowed)return reply({error:"Too many review submissions; please try again later"},429);
    const {data,error}=await db.from("customer_reviews").insert({name,comment,rating,status:"published"}).select("id,review_code").single();
    if(error)throw error;
    const customer_contact=String(j.contact??"").trim();
