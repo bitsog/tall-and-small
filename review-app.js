@@ -1,7 +1,8 @@
 (()=>{
 const api=window.TALL_SMALL_REVIEWS_API || "";
 const list=document.getElementById('reviewList'),form=document.getElementById('reviewForm'),status=document.getElementById('reviewNotice'),submit=document.getElementById('reviewSubmit');
-let rating=0;
+let rating=0,turnstileWidget=null;
+const turnstileSitekey=window.TALL_SMALL_TURNSTILE_SITEKEY||'';
 const stars=[...document.querySelectorAll('#rate button')];
 stars.forEach(b=>b.addEventListener('click',()=>{rating=Number(b.dataset.star);for(const x of stars){x.classList.toggle('chosen',Number(x.dataset.star)<=rating);x.setAttribute('aria-pressed',String(Number(x.dataset.star)===rating))}document.getElementById('rateStatus').textContent=rating+' of 5 stars'}));
 const el=(tag,className,text)=>{const n=document.createElement(tag);if(className)n.className=className;if(text!==undefined)n.textContent=text;return n;};
@@ -17,17 +18,23 @@ async function refresh(){
  for(const r of data.reviews){if(Number.isInteger(r.rating)&&r.rating>=1&&r.rating<=5&&typeof r.comment==='string'&&typeof r.name==='string')showReview(r)}
  }catch{list.replaceChildren(el('p','smallnote','Customer reviews are temporarily unavailable.'))}
 }
-if(api){
+if(api&&turnstileSitekey){
+ const mount=document.createElement('div');mount.id='reviewTurnstile';submit.before(mount);
+ const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;
+ script.onload=()=>{turnstileWidget=window.turnstile.render('#reviewTurnstile',{sitekey:turnstileSitekey})};
+ document.head.append(script);
  submit.disabled=false;submit.textContent='Post my review';status.textContent='Your review will be publicly visible after automated spam checks. Contact information is never displayed.';
  refresh();
 }
 form.addEventListener('submit',async e=>{
  e.preventDefault();if(!api)return;if(!rating){document.getElementById('rateStatus').textContent='Choose a rating to continue';return}
- const payload={name:document.getElementById('customerName').value.trim(),rating,comment:document.getElementById('customerComment').value.trim(),website:document.getElementById('websiteTrap').value,contact:document.getElementById('reviewContact').value.trim(),contact_permission:document.getElementById('contactPermission').checked};
+ const token=turnstileWidget!==null&&window.turnstile?window.turnstile.getResponse(turnstileWidget):'';
+ if(!token){status.textContent='Please complete the anti-spam check before submitting.';return}
+ const payload={turnstile_token:token,name:document.getElementById('customerName').value.trim(),rating,comment:document.getElementById('customerComment').value.trim(),website:document.getElementById('websiteTrap').value,contact:document.getElementById('reviewContact').value.trim(),contact_permission:document.getElementById('contactPermission').checked};
  if(payload.comment.length<10){status.textContent='Please write at least 10 characters.';return}
  submit.disabled=true;status.textContent='Submitting your review…';
  try{const res=await fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw Error('not accepted');status.textContent='Thank you! Your review has been submitted.';form.reset();rating=0;stars.forEach(x=>x.classList.remove('chosen'));await refresh()}
  catch{status.textContent='We could not submit your review. Please try again later or text David directly.'}
- finally{submit.disabled=false}
+ finally{if(turnstileWidget!==null&&window.turnstile)window.turnstile.reset(turnstileWidget);submit.disabled=false}
 });
 })();
