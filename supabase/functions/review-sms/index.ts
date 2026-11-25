@@ -20,6 +20,9 @@ async function twilioValid(req:Request,form:URLSearchParams){
 async function send(to:string,message:string){
  const sid=get("TWILIO_ACCOUNT_SID"),token=get("TWILIO_AUTH_TOKEN"),from=get("TWILIO_FROM_NUMBER");
  if(!sid||!token||!from)throw Error("SMS not configured");
+ const {data:budget,error:budgetError}=await supabase.rpc("reserve_review_sms_alert");
+ if(budgetError)throw budgetError;
+ if(!budget)throw Error("Daily SMS budget reached");
  const body=new URLSearchParams({To:to,From:from,Body:message});
  const res=await fetch("https://api.twilio.com/2010-04-01/Accounts/"+encodeURIComponent(sid)+"/Messages.json",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Authorization:"Basic "+btoa(sid+":"+token)},body});
  if(!res.ok)throw Error("SMS status "+res.status);
