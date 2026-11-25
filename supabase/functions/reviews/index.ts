@@ -11,10 +11,10 @@ const origin=Deno.env.get("PUBLIC_SITE_ORIGIN") ?? "https://tallandsmallyardwork
 const db=createClient(url,service,{auth:{autoRefreshToken:false,persistSession:false}});
 const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Headers":"authorization, content-type, apikey","Access-Control-Allow-Methods":"GET, POST, PATCH, OPTIONS","Content-Type":"application/json"};
 const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers});
-async function notifyDavid(r:{id:string,name:string,rating:number,comment:string}){
+async function notifyDavid(r:{id:string,review_code:string,name:string,rating:number,comment:string}){
  const sid=Deno.env.get("TWILIO_ACCOUNT_SID"), token=Deno.env.get("TWILIO_AUTH_TOKEN"), from=Deno.env.get("TWILIO_FROM_NUMBER"), to=Deno.env.get("DAVID_NOTIFY_NUMBER");
  if(!sid||!token||!from||!to)return false;
- const body=new URLSearchParams({From:from,To:to,Body:`Tall and Small review ${r.id.slice(0,8)}: ${r.rating}/5 stars from ${r.name}: ${r.comment.slice(0,180)}.\n\nReply by text: REPLY ${r.id.slice(0,8)} Your message\nThen confirm with YES ${r.id.slice(0,8)}. Review replies only.`});
+ const body=new URLSearchParams({From:from,To:to,Body:`Tall and Small review ${r.review_code}: ${r.rating}/5 stars from ${r.name}: ${r.comment.slice(0,180)}.\n\nReply by text: REPLY ${r.review_code} Your message\nThen confirm with YES ${r.review_code}. Review replies only.`});
  const res=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,{method:"POST",headers:{Authorization:"Basic "+btoa(sid+":"+token),"Content-Type":"application/x-www-form-urlencoded"},body});
  if(!res.ok)throw new Error("SMS provider returned "+res.status);
  return true;
@@ -35,11 +35,11 @@ Deno.serve(async req=>{
    if(name.length<1||name.length>60||comment.length<10||comment.length>1000||!Number.isInteger(rating)||rating<1||rating>5)return reply({error:"Invalid review"},400);
    // The Edge Function is not production-ready without rate limiting/CAPTCHA.
    if(Deno.env.get("REVIEW_SUBMISSIONS_ENABLED")!=="true")return reply({error:"Reviews are not accepting submissions yet"},503);
-   const {data,error}=await db.from("customer_reviews").insert({name,comment,rating,status:"published"}).select("id").single();
+   const {data,error}=await db.from("customer_reviews").insert({name,comment,rating,status:"published"}).select("id,review_code").single();
    if(error)throw error;
    const customer_contact=String(j.contact??"").trim();
    if(customer_contact&&customer_contact.length<=150&&j.contact_permission===true)await db.from("review_contacts").insert({review_id:data.id,customer_contact,contact_permission:true});
-   try{await notifyDavid({id:data.id,name,rating,comment})}catch(e){console.error("Review SMS failed",e)}
+   try{await notifyDavid({id:data.id,review_code:data.review_code,name,rating,comment})}catch(e){console.error("Review SMS failed",e)}
    return reply({ok:true},201);
   }
   if(req.method==="PATCH"){
