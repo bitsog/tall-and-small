@@ -37,12 +37,12 @@ Deno.serve(async(req)=>{
   const {error:duplicate}=await supabase.from("review_sms_processed").insert({message_sid:sid});
   if(duplicate){if(duplicate.code==="23505")return xml("");throw duplicate}
   const body=(form.get("Body")||"").trim();
-  const reply=body.match(/^REPLY\s+([0-9a-f]{8})\s+([\s\S]+)$/i);
-  const confirm=body.match(/^YES\s+([0-9a-f]{8})$/i);
+  const reply=body.match(/^REPLY\s+([0-9a-f]{10})\s+([\s\S]+)$/i);
+  const confirm=body.match(/^YES\s+([0-9a-f]{10})$/i);
   if(reply){
    const code=reply[1].toLowerCase(),content=reply[2].trim();
    if(!content||content.length>1000){await send(get("DAVID_NOTIFY_NUMBER"),"Reply must be 1–1000 characters. Try: REPLY "+code+" Your response");return xml("")}
-   const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").like("id",code+"%").limit(2);
+   const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").eq("review_code",code).limit(2);
    if(error)throw error;
    if(!data||data.length!==1){await send(get("DAVID_NOTIFY_NUMBER"),"Review code not found or ambiguous. Please use the code from the review alert.");return xml("")}
    // Upsert only if review has no existing reply; existing replies require owner portal.
@@ -53,7 +53,7 @@ Deno.serve(async(req)=>{
    await send(get("DAVID_NOTIFY_NUMBER"),"Preview for review "+code+": "+content.slice(0,600)+"\n\nText YES "+code+" within 15 minutes to publish this reply publicly. Otherwise it will not post.");
   }else if(confirm){
    const code=confirm[1].toLowerCase();
-   const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").like("id",code+"%").limit(2);
+   const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").eq("review_code",code).limit(2);
    if(error)throw error;
    if(!data||data.length!==1){await send(get("DAVID_NOTIFY_NUMBER"),"Review code not found.");return xml("")}
    const {data:pending,error:pendingError}=await supabase.from("review_sms_pending").select("reply_text,expires_at").eq("review_id",data[0].id).maybeSingle();
