@@ -2,20 +2,12 @@
 // NOT active until a Twilio number, verified webhook URL, and secrets are configured.
 // Requires function JWT verification OFF (Twilio posts without Supabase JWT).
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { parseReplyCommand, twilioSignatureValid } from "./sms-protocol.js";
 const get=(n:string)=>Deno.env.get(n)||"";
 const supabase=createClient(get("SUPABASE_URL"),get("SUPABASE_SERVICE_ROLE_KEY"),{auth:{persistSession:false,autoRefreshToken:false}});
 const xml=(msg:string,status=200)=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',{status,headers:{"Content-Type":"text/xml; charset=utf-8"}});
-const byteEqual=(a:string,b:string)=>{if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0};
 async function twilioValid(req:Request,form:URLSearchParams){
- const token=get("TWILIO_AUTH_TOKEN"),expectedUrl=get("TWILIO_WEBHOOK_URL"),signature=req.headers.get("X-Twilio-Signature")||"";
- // Compare configured exact public URL, including scheme, path, and query parameters.
- if(!token||!expectedUrl||req.url!==expectedUrl||!signature)return false;
- const keys=Array.from(new Set(Array.from(form.keys()))).sort();
- let signedUrl=expectedUrl;for(const key of keys){for(const val of form.getAll(key))signedUrl+=key+val}
- const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(token),{name:"HMAC",hash:"SHA-1"},false,["sign"]);
- const raw=await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(signedUrl));
- const bytes=Array.from(new Uint8Array(raw));const expected=btoa(String.fromCharCode(...bytes));
- return byteEqual(signature,expected);
+ return twilioSignatureValid({url:req.url,expectedUrl:get("TWILIO_WEBHOOK_URL"),signature:req.headers.get("X-Twilio-Signature")||"",form,token:get("TWILIO_AUTH_TOKEN")});
 }
 async function send(to:string,message:string){
  const sid=get("TWILIO_ACCOUNT_SID"),token=get("TWILIO_AUTH_TOKEN"),from=get("TWILIO_FROM_NUMBER");
@@ -30,7 +22,7 @@ async function send(to:string,message:string){
 Deno.serve(async(req)=>{
  if(req.method!=="POST")return new Response("Method not allowed",{status:405});
  if(!req.headers.get("content-type")?.includes("application/x-www-form-urlencoded"))return new Response("Unsupported Media Type",{status:415});
- if(!get("DAVID_NOTIFY_NUMBER")||!get("TWILIO_FROM_NUMBER")||!get("TWILIO_AUTH_TOKEN")||!get("TWILIO_WEBHOOK_URL"))return new Response("Not configured",{status:503});
+ if(get("REVIEW_SMS_ENABLED")!=="true"||!get("DAVID_NOTIFY_NUMBER")||!get("TWILIO_FROM_NUMBER")||!get("TWILIO_AUTH_TOKEN")||!get("TWILIO_WEBHOOK_URL"))return new Response("Not configured",{status:503});
  try{
   const form=new URLSearchParams(await req.text());
   if(!await twilioValid(req,form))return new Response("Forbidden",{status:403});
@@ -40,22 +32,20 @@ Deno.serve(async(req)=>{
   const {error:duplicate}=await supabase.from("review_sms_processed").insert({message_sid:sid});
   if(duplicate){if(duplicate.code==="23505")return xml("");throw duplicate}
   const body=(form.get("Body")||"").trim();
-  const reply=body.match(/^REPLY\s+([0-9a-f]{10})\s+([\s\S]+)$/i);
-  const confirm=body.match(/^YES\s+([0-9a-f]{10})$/i);
-  if(reply){
-   const code=reply[1].toLowerCase(),content=reply[2].trim();
+  const command=parseReplyCommand(body);
+  if(command.type==="reply"){
+   const {code,content}=command;
    if(!content||content.length>1000){await send(get("DAVID_NOTIFY_NUMBER"),"Reply must be 1–1000 characters. Try: REPLY "+code+" Your response");return xml("")}
    const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").eq("review_code",code).limit(2);
    if(error)throw error;
    if(!data||data.length!==1){await send(get("DAVID_NOTIFY_NUMBER"),"Review code not found or ambiguous. Please use the code from the review alert.");return xml("")}
-   // Upsert only if review has no existing reply; existing replies require owner portal.
    if(data[0].owner_reply){await send(get("DAVID_NOTIFY_NUMBER"),"This review already has a public reply. To edit it, use the owner dashboard.");return xml("")}
    const expires=new Date(Date.now()+15*60*1000).toISOString();
    const {error:saveError}=await supabase.from("review_sms_pending").upsert({review_id:data[0].id,reply_text:content,expires_at:expires});
    if(saveError)throw saveError;
    await send(get("DAVID_NOTIFY_NUMBER"),"Preview for review "+code+": "+content.slice(0,600)+"\n\nText YES "+code+" within 15 minutes to publish this reply publicly. Otherwise it will not post.");
-  }else if(confirm){
-   const code=confirm[1].toLowerCase();
+  }else if(command.type==="confirm"){
+   const {code}=command;
    const {data,error}=await supabase.from("customer_reviews").select("id,owner_reply").eq("status","published").eq("review_code",code).limit(2);
    if(error)throw error;
    if(!data||data.length!==1){await send(get("DAVID_NOTIFY_NUMBER"),"Review code not found.");return xml("")}
