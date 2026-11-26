@@ -18,14 +18,14 @@ async function refresh(){
  for(const r of data.reviews){if(Number.isInteger(r.rating)&&r.rating>=1&&r.rating<=5&&typeof r.comment==='string'&&typeof r.name==='string')showReview(r)}
  }catch{list.replaceChildren(el('p','smallnote','Customer reviews are temporarily unavailable.'))}
 }
+// Public review display does not depend on the CAPTCHA widget.
+if(api)refresh();
 if(api&&turnstileSitekey){
  const mount=document.createElement('div');mount.id='reviewTurnstile';submit.before(mount);
  const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;
- script.onload=()=>{turnstileWidget=window.turnstile.render('#reviewTurnstile',{sitekey:turnstileSitekey})};
+ script.onload=()=>{try{if(!window.turnstile)throw Error('Missing Turnstile library');turnstileWidget=window.turnstile.render('#reviewTurnstile',{sitekey:turnstileSitekey});submit.disabled=false;submit.textContent='Post my review';status.textContent='Complete the anti-spam check, then post your review.'}catch{submit.disabled=true;status.textContent='Spam protection could not start. Please try again later.'}};
  script.onerror=()=>{submit.disabled=true;status.textContent='Spam protection could not load. Please try again later.'};
  document.head.append(script);
- submit.disabled=false;submit.textContent='Post my review';status.textContent='Your review is posted after an automated spam check.';
- refresh();
 }
 form.addEventListener('submit',async e=>{
  e.preventDefault();if(!api)return;if(!rating){document.getElementById('rateStatus').textContent='Choose a rating to continue';return}
