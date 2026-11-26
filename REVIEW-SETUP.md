@@ -1,58 +1,71 @@
-# Public customer reviews — pending backend connection
+# Tall and Small Yard Work reviews
 
-**Do not merge this branch until the checklist is complete.** The live GitHub Pages site currently retains the working customer-initiated SMS review workflow.
+## Scope
 
-## Target behavior
-- Customers submit a name, 1–5 stars, and a written review on the website.
-- A verified backend stores the review, publishes it after automated abuse checks, and notifies David.
-- Customers can optionally submit contact information privately and authorize follow-up.
-- David signs into /owner.html to reply publicly, or remove reviews for spam/abuse (not merely because of negative ratings).
-- Public reviews show the owner's reply nested below the original.
+Customers can submit a **name, 1–5 star rating, comment, and submit**. The form does not ask for a phone number, email address, or consent to receive text messages. It does not send SMS to customers. Reviews become public after the server verifies Turnstile and the abuse controls.
 
-## Setup
-1. Connect Supabase and create a project.
-2. Run `supabase/migrations/001_reviews.sql`.
-3. Deploy `supabase/functions/reviews/index.ts` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_SITE_ORIGIN=https://tallandsmallyardwork.com`, and `REVIEW_OWNER_USER_ID`. The service role key stays private in Edge Function secrets.
-4. Configure verified spam protection, e.g. Cloudflare Turnstile + server-side checks and per-IP rate limits. The function is purposely **disabled** for submissions until `REVIEW_SUBMISSIONS_ENABLED=true`. Do **not** set this true before implementing spam controls: the included honeypot alone is insufficient.
-5. Set `review-settings.js` `TALL_SMALL_REVIEWS_API` to the HTTPS Edge Function URL.
-6. Set `owner-settings.js` URL, public anon key, and API URL (NEVER service role).
-7. Configure Supabase Auth email sign-in and allow the deployed /owner.html redirect URL. Set the owner user ID to David's authorized Supabase Auth account.
-8. For automatic text alerts, configure a compliant Twilio account: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and `DAVID_NOTIFY_NUMBER` as private function secrets. This requires separate Twilio account registration and can incur recurring/per-message charges.
-9. Test real reviews, replies, spam blocking, notification delivery, and no exposure of customer contacts.
-10. Merge the PR after tests pass and GitHub Pages deploys.
+The Twilio number is only for David's review notifications and for David to submit public replies by text. Job inquiries continue to use David's existing public number, **(571) 919-5767**.
 
-## Security and privacy
-- Static GitHub Pages cannot accept submissions or send automated texts alone.
-- The Edge Function must be protected against bots and repeated submissions before enabling submissions.
-- Never put SMS credentials or the Supabase service-role key in browser-side JavaScript.
-- Never publicly display optional customer contact information.
-- Have David authorize an email address before enabling his private owner dashboard.
-- Replies cannot be changed by site visitors; only the authorized Supabase owner ID can update them.
-- The free database tier may suffice; SMS is not inherently free.
+## Current setup
 
+- Supabase project: `mltkksvlgvkqudrbnscv` (active).
+- Migrations 001–005 are applied; review, SMS idempotency, and rate-limit tables have RLS enabled. Public reads are limited to published reviews; write and private workflow tables have no public policies.
+- Edge Functions `reviews` and `review-sms` are deployed. `reviews` handles public reads and submissions; `review-sms` validates signed Twilio webhooks and David's two-step replies.
+- The public site configuration points to the Supabase `reviews` endpoint. The public Turnstile site key is in `review-settings.js`; the matching Cloudflare widget/secret still needs live verification.
+- Review submission stays off until the real Turnstile secret, rate-limit salt, and end-to-end checks are complete.
+- SMS stays off separately until carrier approval and a controlled, successful reply test. A2P Brand is approved; Sole Proprietor Campaign is submitted and **IN REVIEW**. Messaging Service: `Tall and Small Reviews`; SMS number: `+15716484077`.
 
-## REVIEW-ONLY two-way SMS (built; not activated)
+## Server-side configuration
 
-The dedicated Twilio number is **exclusively** for review alerts and David's responses.
-Customers still call/text David's existing number directly about jobs. Do not route general customer conversations through Twilio.
+Set private Supabase Edge Function secrets only in Supabase. Never put a secret in GitHub or browser JavaScript.
 
-### Flow
-1. Customer submits review to review API; after spam validation, it publishes and sends David an SMS.
-2. Notification includes a unique 10-character code, rating, customer name, and comment.
-3. David texts the Twilio number: `REPLY abc1234567 Thank you for the feedback!` (use actual code from alert).
-4. System sends him a preview and asks for `YES abc1234567` within 15 minutes.
-5. Upon confirmation, the reply appears publicly beneath that specific customer review; David receives a success SMS.
-6. Repeated confirmations and duplicate webhook messages do not intentionally create new public replies. To edit an existing reply, use owner dashboard.
+- `TURNSTILE_SECRET_KEY`: Cloudflare secret matching the site's configured public Turnstile site key.
+- `REVIEW_RATE_SALT`: random value of at least 32 characters.
+- `REVIEW_SUBMISSIONS_ENABLED`: keep unset/false until testing is complete; set `true` only for the review launch.
+- `REVIEW_SMS_ENABLED`: keep unset/false while SMS is waiting on registration approval and end-to-end testing.
+- `PUBLIC_SITE_ORIGIN=https://tallandsmallyardwork.com`
+- Supabase supplies `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the function runtime.
 
-### Setup still needed
-- Create/authorize a Twilio account, purchase a dedicated SMS-capable number, and complete appropriate US A2P 10DLC registration (may have setup, monthly and carrier fees). **Do not buy anything without the account owner's approval.**
-- In Supabase Edge Function secrets set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `DAVID_NOTIFY_NUMBER` (E.164; David's verified personal phone), and `TWILIO_WEBHOOK_URL=https://mltkksvlgvkqudrbnscv.supabase.co/functions/v1/review-sms`.
-- Configure the dedicated Twilio number inbound SMS webhook to POST the exact `TWILIO_WEBHOOK_URL`. Signature verification requires URL match and all incoming form parameters. Verify real inbound SMS works before publishing.
-- Deployments have been staged to Supabase with no paid credentials. Review submissions require `REVIEW_SUBMISSIONS_ENABLED=true`, which must **remain disabled until CAPTCHA and server-side rate limiting are implemented and tested**.
-- Configure David's Auth account and `REVIEW_OWNER_USER_ID`, plus front-end settings, before merging this PR.
-- Verify with a real controlled review and reply cycle, including negative review, duplicate webhook, wrong sender, wrong code, expiration, and missing SMS provider.
+The review endpoint verifies Turnstile server-side for the Tall and Small hostnames and limits each keyed network to 3 accepted submissions per hour. It stores only the name, rating, comment, and review metadata. It uses the `cf-connecting-ip` header and stores only a salted HMAC, not the raw IP.
 
-Security and operational limitations: SMS content is not end-to-end encrypted and is not appropriate for customer contact data. Only the designated sender number plus Twilio-signed webhook and text confirmation authorize replies. The UI and database keep optional private customer contact details separate. No SMS or review collection is currently active.
+## Twilio-only configuration
 
-### Existing backend state (2026-11-25)
-Supabase project `mltkksvlgvkqudrbnscv`, BITSOG free tier: migrations `001_reviews.sql`, `002_review_sms.sql`, `003_review_sms_codes.sql` applied; two Edge Functions `reviews` and `review-sms` deployed. Both public business workflows remain gated/disabled until service configuration.
+Private secrets required before activating SMS:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER=+15716484077`
+- `DAVID_NOTIFY_NUMBER` (David's confirmed mobile in E.164 format)
+- `TWILIO_WEBHOOK_URL=https://mltkksvlgvkqudrbnscv.supabase.co/functions/v1/review-sms` is set as a non-secret URL; verify the exact value in Supabase before using it.
+
+No code path sends a text unless `REVIEW_SMS_ENABLED=true`. Do not enable that flag before A2P Campaign approval and controlled testing. The SMS daily cap is 20 notifications; it limits message count, not total charges.
+
+## David's reply workflow
+
+When enabled, David receives an alert with a review code, rating, customer name, and comment. He replies to the dedicated Twilio number:
+
+```text
+REPLY <review-code> <his response>
+```
+
+The service sends him a preview. He confirms within 15 minutes by replying:
+
+```text
+YES <review-code>
+```
+
+The reply appears beneath that review. The webhook accepts only Twilio-signed requests from David's confirmed number and ignores duplicate MessageSids. No general customer conversations are routed through this number.
+
+## Tests before public launch
+
+1. Run the repository's Node tests for review validation and simple form behavior.
+2. Verify Cloudflare's real site key renders for `tallandsmallyardwork.com` and `www.tallandsmallyardwork.com`; verify a real token server-side.
+3. With reviews still off, verify GET reads published reviews, malformed submissions fail, honeypot submissions do not write, and a valid submission is blocked while the feature flag is off.
+4. Enable reviews only after the prior checks, submit a controlled test review, verify public rendering and that no contact fields are accepted or stored, then remove the test review.
+5. Verify the 4th submission in one hour is rejected.
+6. Keep SMS disabled until the Campaign leaves IN REVIEW. Then test an alert and David's REPLY/YES flow using an agreed controlled review; test bad signature, wrong sender, wrong/expired code, duplicates, and cap behavior.
+7. Do not merge PR #2 or enable live SMS until these tests pass.
+
+## Not launch blockers for the customer form
+
+David's owner dashboard sign-in is optional for the requested SMS reply workflow. It requires setting up David's authorized Supabase Auth account and `REVIEW_OWNER_USER_ID` if the dashboard is kept in use.
