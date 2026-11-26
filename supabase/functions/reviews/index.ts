@@ -5,6 +5,7 @@
 // Authenticated owner actions require a valid Supabase JWT.
 // Deploy with JWT verification disabled only if endpoint authentication is enforced below.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { validateReviewInput } from "./review-validation.js";
 const url=Deno.env.get("SUPABASE_URL")!;
 const service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const origin=Deno.env.get("PUBLIC_SITE_ORIGIN") ?? "https://tallandsmallyardwork.com";
@@ -12,6 +13,7 @@ const db=createClient(url,service,{auth:{autoRefreshToken:false,persistSession:f
 const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Headers":"authorization, content-type, apikey","Access-Control-Allow-Methods":"GET, POST, PATCH, OPTIONS","Content-Type":"application/json"};
 const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers});
 async function notifyDavid(r:{id:string,review_code:string,name:string,rating:number,comment:string}){
+ if(Deno.env.get("REVIEW_SMS_ENABLED")!=="true")return false;
  const sid=Deno.env.get("TWILIO_ACCOUNT_SID"), token=Deno.env.get("TWILIO_AUTH_TOKEN"), from=Deno.env.get("TWILIO_FROM_NUMBER"), to=Deno.env.get("DAVID_NOTIFY_NUMBER");
  if(!sid||!token||!from||!to)return false;
  const {data:budget,error:budgetError}=await db.rpc("reserve_review_sms_alert");
@@ -31,7 +33,7 @@ async function verifyHuman(token:string,ip:string){
  const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify",{method:"POST",body,signal:AbortSignal.timeout(8000)});
  if(!response.ok)return false;
  const verification=await response.json();
- return verification.success===true && (!verification.hostname||verification.hostname==="tallandsmallyardwork.com"||verification.hostname==="www.tallandsmallyardwork.com");
+ return verification.success===true && (verification.hostname==="tallandsmallyardwork.com"||verification.hostname==="www.tallandsmallyardwork.com");
 }
 async function hmacNetwork(ip:string){
  const salt=Deno.env.get("REVIEW_RATE_SALT");
@@ -50,16 +52,24 @@ Deno.serve(async req=>{
    if(error)throw error;return reply({reviews:data});
   }
   if(req.method==="POST"){
-   if((Number(req.headers.get("content-length")||"0")>6000))return reply({error:"Review too long"},413);
-   const j=await req.json();
+   if(!req.headers.get("content-type")?.toLowerCase().includes("application/json"))return reply({error:"JSON required"},415);
+   if(Number(req.headers.get("content-length")||"0")>6000)return reply({error:"Review too long"},413);
+   let j:unknown;
+   try{const raw=await req.text();if(raw.length>6000)return reply({error:"Review too long"},413);j=JSON.parse(raw)}catch{return reply({error:"Invalid review"},400)}
+   if(!j||typeof j!=="object"||Array.isArray(j))return reply({error:"Invalid review"},400);
+   const body=j as Record<string,unknown>;
    // Honeypot, CAPTCHA verification, and atomic per-network rate limiting.
-   if(j.website)return reply({ok:true});
-   const name=String(j.name??"").trim(),comment=String(j.comment??"").trim(),rating=Number(j.rating);
-   if(name.length<1||name.length>60||comment.length<10||comment.length>1000||!Number.isInteger(rating)||rating<1||rating>5)return reply({error:"Invalid review"},400);
-   // The Edge Function is not production-ready without rate limiting/CAPTCHA.
+   if(body.website)return reply({ok:true});
+   const parsed=validateReviewInput(body);
+   if(!parsed.ok)return reply({error:"Invalid review"},400);
+   const {name,rating,comment}=parsed.value;
+   // Keep the public review service off until its spam controls are configured and tested.
    if(Deno.env.get("REVIEW_SUBMISSIONS_ENABLED")!=="true")return reply({error:"Reviews are not accepting submissions yet"},503);
-   const ip=(req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]||"").trim();
-   if(!await verifyHuman(String(j.turnstile_token||""),ip))return reply({error:"Please complete the anti-spam check"},400);
+   const rateSalt=Deno.env.get("REVIEW_RATE_SALT")||"";
+   if(!Deno.env.get("TURNSTILE_SECRET_KEY")||rateSalt.length<32)return reply({error:"Review submissions are not fully configured"},503);
+   const ip=(req.headers.get("cf-connecting-ip")||"").trim();
+   if(!ip)return reply({error:"Review submissions are temporarily unavailable"},503);
+   if(!await verifyHuman(String(body.turnstile_token||""),ip))return reply({error:"Please complete the anti-spam check"},400);
    const networkKey=await hmacNetwork(ip);
    if(!networkKey)return reply({error:"Review submissions not fully configured"},503);
    const {data:allowed,error:rateError}=await db.rpc("take_review_rate_slot",{p_network_key:networkKey});
@@ -67,8 +77,6 @@ Deno.serve(async req=>{
    if(!allowed)return reply({error:"Too many review submissions; please try again later"},429);
    const {data,error}=await db.from("customer_reviews").insert({name,comment,rating,status:"published"}).select("id,review_code").single();
    if(error)throw error;
-   const customer_contact=String(j.contact??"").trim();
-   if(customer_contact&&customer_contact.length<=150&&j.contact_permission===true)await db.from("review_contacts").insert({review_id:data.id,customer_contact,contact_permission:true});
    try{await notifyDavid({id:data.id,review_code:data.review_code,name,rating,comment})}catch(e){console.error("Review SMS failed",e)}
    return reply({ok:true},201);
   }
