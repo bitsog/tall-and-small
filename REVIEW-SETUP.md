@@ -11,9 +11,9 @@ The Twilio number is only for David's review notifications and for David to subm
 - Supabase project: `mltkksvlgvkqudrbnscv` (active).
 - Migrations 001–005 are applied; review, SMS idempotency, and rate-limit tables have RLS enabled. Public reads are limited to published reviews; write and private workflow tables have no public policies.
 - Edge Functions `reviews` and `review-sms` are deployed. `reviews` handles public reads and submissions; `review-sms` validates signed Twilio webhooks and David's two-step replies.
-- The public site configuration points to the Supabase `reviews` endpoint. The public Turnstile site key is in `review-settings.js`; the matching Cloudflare widget/secret still needs live verification.
-- Review submission stays off until the real Turnstile secret, rate-limit salt, and end-to-end checks are complete.
-- SMS stays off separately until carrier approval and a controlled, successful reply test. A2P Brand is approved; Sole Proprietor Campaign is submitted and **IN REVIEW**. Messaging Service: `Tall and Small Reviews`; SMS number: `+15716484077`.
+- The public site configuration points to the Supabase `reviews` endpoint. The public Turnstile site key is in `review-settings.js`; the private Turnstile secret is present in Supabase, but the key/secret match and production-domain widget still need live verification.
+- A private `REVIEW_RATE_SALT` is configured in Supabase. `REVIEW_SUBMISSIONS_ENABLED` and `REVIEW_SMS_ENABLED` are explicitly `false`; no submission or SMS is active.
+- Review submission stays off until the real Turnstile token check and controlled end-to-end review/rate-limit checks pass. SMS stays off separately until carrier approval and a controlled, successful reply test. A2P Brand is approved; Sole Proprietor Campaign is submitted and **IN REVIEW**. Messaging Service: `Tall and Small Reviews`; SMS number: `+15716484077`.
 
 ## Server-side configuration
 
