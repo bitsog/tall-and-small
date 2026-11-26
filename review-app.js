@@ -22,19 +22,20 @@ if(api&&turnstileSitekey){
  const mount=document.createElement('div');mount.id='reviewTurnstile';submit.before(mount);
  const script=document.createElement('script');script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;
  script.onload=()=>{turnstileWidget=window.turnstile.render('#reviewTurnstile',{sitekey:turnstileSitekey})};
+ script.onerror=()=>{submit.disabled=true;status.textContent='Spam protection could not load. Please try again later.'};
  document.head.append(script);
- submit.disabled=false;submit.textContent='Post my review';status.textContent='Your review will be publicly visible after automated spam checks. Contact information is never displayed.';
+ submit.disabled=false;submit.textContent='Post my review';status.textContent='Your review is posted after an automated spam check.';
  refresh();
 }
 form.addEventListener('submit',async e=>{
  e.preventDefault();if(!api)return;if(!rating){document.getElementById('rateStatus').textContent='Choose a rating to continue';return}
  const token=turnstileWidget!==null&&window.turnstile?window.turnstile.getResponse(turnstileWidget):'';
  if(!token){status.textContent='Please complete the anti-spam check before submitting.';return}
- const payload={turnstile_token:token,name:document.getElementById('customerName').value.trim(),rating,comment:document.getElementById('customerComment').value.trim(),website:document.getElementById('websiteTrap').value,contact:document.getElementById('reviewContact').value.trim(),contact_permission:document.getElementById('contactPermission').checked};
+ const payload={turnstile_token:token,name:document.getElementById('customerName').value.trim(),rating,comment:document.getElementById('customerComment').value.trim(),website:document.getElementById('websiteTrap').value};
  if(payload.comment.length<10){status.textContent='Please write at least 10 characters.';return}
  submit.disabled=true;status.textContent='Submitting your review…';
- try{const res=await fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw Error('not accepted');status.textContent='Thank you! Your review has been submitted.';form.reset();rating=0;stars.forEach(x=>x.classList.remove('chosen'));await refresh()}
- catch{status.textContent='We could not submit your review. Please try again later or text David directly.'}
+ try{const res=await fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw Error('not accepted');status.textContent='Thank you! Your review has been submitted.';form.reset();rating=0;stars.forEach(x=>{x.classList.remove('chosen');x.setAttribute('aria-pressed','false')});document.getElementById('rateStatus').textContent='Choose 1 to 5 stars';await refresh()}
+ catch{status.textContent='We could not submit your review. Please try again later.'}
  finally{if(turnstileWidget!==null&&window.turnstile)window.turnstile.reset(turnstileWidget);submit.disabled=false}
 });
 })();
