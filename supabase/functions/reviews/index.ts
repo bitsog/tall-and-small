@@ -10,8 +10,7 @@ const url=Deno.env.get("SUPABASE_URL")!;
 const service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const origin=Deno.env.get("PUBLIC_SITE_ORIGIN") ?? "https://tallandsmallyardwork.com";
 const db=createClient(url,service,{auth:{autoRefreshToken:false,persistSession:false}});
-const headers={"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Headers":"authorization, content-type, apikey","Access-Control-Allow-Methods":"GET, POST, PATCH, OPTIONS","Content-Type":"application/json"};
-const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers});
+const allowedOrigins=new Set([origin,"https://tallandsmallyardwork.com","https://www.tallandsmallyardwork.com"]);
 async function notifyDavid(r:{id:string,review_code:string,name:string,rating:number,comment:string}){
  if(Deno.env.get("REVIEW_SMS_ENABLED")!=="true")return false;
  const sid=Deno.env.get("TWILIO_ACCOUNT_SID"), token=Deno.env.get("TWILIO_AUTH_TOKEN"), from=Deno.env.get("TWILIO_FROM_NUMBER"), to=Deno.env.get("DAVID_NOTIFY_NUMBER");
@@ -44,8 +43,11 @@ async function hmacNetwork(ip:string){
 }
 
 Deno.serve(async req=>{
+ const requestOrigin=req.headers.get("origin");
+ const headers={"Access-Control-Allow-Origin":requestOrigin&&allowedOrigins.has(requestOrigin)?requestOrigin:origin,"Vary":"Origin","Access-Control-Allow-Headers":"authorization, content-type, apikey","Access-Control-Allow-Methods":"GET, POST, PATCH, OPTIONS","Content-Type":"application/json"};
+ const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers});
  if(req.method==="OPTIONS")return new Response(null,{headers});
- if(req.headers.get("origin")&&req.headers.get("origin")!==origin)return reply({error:"Origin not permitted"},403);
+ if(requestOrigin&&!allowedOrigins.has(requestOrigin))return reply({error:"Origin not permitted"},403);
  try{
   if(req.method==="GET"){
    const {data,error}=await db.from("customer_reviews").select("id,name,rating,comment,owner_reply,created_at,owner_replied_at").eq("status","published").order("created_at",{ascending:false}).limit(60);
