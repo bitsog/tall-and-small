@@ -150,6 +150,9 @@ export async function handlePhotoMessage({form,db,send,get}){
   if(n.total+number>24){await say("This job has a 24-photo limit. Text DONE, or start a new job after publishing.");return true}
   let accepted=0;
   for(let i=0;i<number;i++){
+   const existing=await db.from("work_photos").select("id").eq("source_message_sid",form.get("MessageSid")||"").eq("source_photo_index",i).limit(1);
+   if(existing.error)throw existing.error;
+   if(existing.data?.length){accepted++;continue}
    const raw=form.get("MediaUrl"+i),type=form.get("MediaContentType"+i)||"";
    if(!raw||!["image/jpeg","image/png","image/webp"].includes(type))continue;
    const bytes=await fetchMedia(raw,get("TWILIO_ACCOUNT_SID"),get("TWILIO_AUTH_TOKEN"),5*1024*1024);
@@ -160,7 +163,7 @@ export async function handlePhotoMessage({form,db,send,get}){
    const path=job.id+"/"+photoId+"."+ext;
    const {error:uploadError}=await db.storage.from(PRIVATE).upload(path,clean,{contentType:actual,upsert:false,cacheControl:"3600"});
    if(uploadError)throw uploadError;
-   const {error:recordError}=await db.from("work_photos").insert({id:photoId,project_id:job.id,photo_type:job.capture_mode,draft_path:path,mime_type:actual});
+   const {error:recordError}=await db.from("work_photos").insert({id:photoId,project_id:job.id,photo_type:job.capture_mode,draft_path:path,mime_type:actual,source_message_sid:form.get("MessageSid"),source_photo_index:i});
    if(recordError){await db.storage.from(PRIVATE).remove([path]);throw recordError}
    accepted++;
   }
