@@ -33,6 +33,71 @@ Deno.serve(async(req)=>{
   if(duplicate){if(duplicate.code==="23505")return xml("");throw duplicate}
   const body=(form.get("Body")||"").trim();
   const command=parseReplyCommand(body);
+  // Simplified SMS workflow: exactly one active review, with all other reviews queued.
+  // This path is feature-gated so existing production code-based replies stay available until tested.
+  if(get("REVIEW_SIMPLE_SMS_ENABLED")==="true"){
+   const {data:active,error:activeError}=await supabase.from("review_sms_queue").select("review_id").eq("state","active").limit(2);
+   if(activeError)throw activeError;
+   if(!active||active.length!==1){
+    await send(get("DAVID_NOTIFY_NUMBER"),"No active customer review to answer right now.");
+    return xml("");
+   }
+   const reviewId=active[0].review_id;
+   const {data:review,error:reviewError}=await supabase.from("customer_reviews").select("id,name,rating,comment,owner_reply,status").eq("id",reviewId).single();
+   if(reviewError)throw reviewError;
+   if(review.status!=="published"||review.owner_reply){
+    await send(get("DAVID_NOTIFY_NUMBER"),"This review is no longer available for a reply. Please contact the website administrator.");
+    return xml("");
+   }
+   const upper=body.toUpperCase();
+   if(upper==="HELP"||upper==="STATUS"){
+    await send(get("DAVID_NOTIFY_NUMBER"),"Current review from "+review.name+": "+review.comment.slice(0,160)+". Reply naturally with your message; then YES to publish or NO to cancel.");
+    return xml("");
+   }
+   if(["STOP","STOPALL","UNSUBSCRIBE","CANCEL","END","QUIT","START","UNSTOP"].includes(upper)){
+    // Twilio normally handles these opt-in/opt-out keywords; never publish them as reviews.
+    return xml("");
+   }
+   if(upper==="NO"){
+    const {error:deleteError}=await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
+    if(deleteError)throw deleteError;
+    await send(get("DAVID_NOTIFY_NUMBER"),"Draft cancelled. Reply with a new message for "+review.name+" whenever you're ready.");
+    return xml("");
+   }
+   if(upper==="YES"){
+    const {data:pending,error:pendingError}=await supabase.from("review_sms_pending").select("reply_text,expires_at").eq("review_id",reviewId).maybeSingle();
+    if(pendingError)throw pendingError;
+    if(!pending||new Date(pending.expires_at).getTime()<=Date.now()){
+     await send(get("DAVID_NOTIFY_NUMBER"),"There is no active draft, or it expired. Reply with your response to "+review.name+" first.");
+     return xml("");
+    }
+    const {data:updated,error:updateError}=await supabase.from("customer_reviews").update({owner_reply:pending.reply_text,owner_replied_at:new Date().toISOString()}).eq("id",reviewId).is("owner_reply",null).eq("status","published").select("id");
+    if(updateError)throw updateError;
+    if(!updated?.length){
+     await send(get("DAVID_NOTIFY_NUMBER"),"Review changed; reply was not published.");
+     return xml("");
+    }
+    await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
+    const {data:nextId,error:advanceError}=await supabase.rpc("advance_review_sms",{p_review_id:reviewId});
+    if(advanceError)throw advanceError;
+    await send(get("DAVID_NOTIFY_NUMBER"),"Your reply to "+review.name+" is now published on the website.");
+    if(nextId){
+     const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
+     if(nextError)throw nextError;
+     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\\n\\nReply naturally, then YES to publish or NO to cancel.");
+    }
+    return xml("");
+   }
+   if(body.length<1||body.length>1000||command.type!=="other"){
+    await send(get("DAVID_NOTIFY_NUMBER"),"Reply with your own message (1–1000 characters), without a code. Then YES to publish.");
+    return xml("");
+   }
+   const expires=new Date(Date.now()+15*60*1000).toISOString();
+   const {error:saveError}=await supabase.from("review_sms_pending").upsert({review_id:reviewId,reply_text:body,expires_at:expires});
+   if(saveError)throw saveError;
+   await send(get("DAVID_NOTIFY_NUMBER"),"Preview for "+review.name+": "+body.slice(0,600)+"\\n\\nPublish under "+review.name+"'s review? Reply YES within 15 minutes or NO to cancel.");
+   return xml("");
+  }
   if(command.type==="reply"){
    const {code,content}=command;
    if(!content||content.length>1000){await send(get("DAVID_NOTIFY_NUMBER"),"Reply must be 1–1000 characters. Try: REPLY "+code+" Your response");return xml("")}
