@@ -3,6 +3,7 @@
 // Requires function JWT verification OFF (Twilio posts without Supabase JWT).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { parseReplyCommand, twilioSignatureValid } from "./sms-protocol.js";
+import { parseSimpleReplyCommand } from "./simple-sms-protocol.js";
 const get=(n:string)=>Deno.env.get(n)||"";
 const supabase=createClient(get("SUPABASE_URL"),get("SUPABASE_SERVICE_ROLE_KEY"),{auth:{persistSession:false,autoRefreshToken:false}});
 const xml=(msg:string,status=200)=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',{status,headers:{"Content-Type":"text/xml; charset=utf-8"}});
@@ -49,22 +50,23 @@ Deno.serve(async(req)=>{
     await send(get("DAVID_NOTIFY_NUMBER"),"This review is no longer available for a reply. Please contact the website administrator.");
     return xml("");
    }
+   const simpleCommand=parseSimpleReplyCommand(body);
    const upper=body.toUpperCase();
-   if(upper==="HELP"||upper==="STATUS"){
+   if(simpleCommand.type==="status"){
     await send(get("DAVID_NOTIFY_NUMBER"),"Current review from "+review.name+": "+review.comment.slice(0,160)+". Reply naturally with your message; then YES to publish or NO to cancel.");
     return xml("");
    }
-   if(["STOP","STOPALL","UNSUBSCRIBE","CANCEL","END","QUIT","START","UNSTOP"].includes(upper)){
+   if(simpleCommand.type==="reserved"){
     // Twilio normally handles these opt-in/opt-out keywords; never publish them as reviews.
     return xml("");
    }
-   if(upper==="NO"){
+   if(simpleCommand.type==="cancel"){
     const {error:deleteError}=await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
     if(deleteError)throw deleteError;
     await send(get("DAVID_NOTIFY_NUMBER"),"Draft cancelled. Reply with a new message for "+review.name+" whenever you're ready.");
     return xml("");
    }
-   if(upper==="YES"){
+   if(simpleCommand.type==="confirm"){
     const {data:pending,error:pendingError}=await supabase.from("review_sms_pending").select("reply_text,expires_at").eq("review_id",reviewId).maybeSingle();
     if(pendingError)throw pendingError;
     if(!pending||new Date(pending.expires_at).getTime()<=Date.now()){
@@ -88,14 +90,14 @@ Deno.serve(async(req)=>{
     }
     return xml("");
    }
-   if(body.length<1||body.length>1000||command.type!=="other"){
+   if(simpleCommand.type!=="draft"){
     await send(get("DAVID_NOTIFY_NUMBER"),"Reply with your own message (1–1000 characters), without a code. Then YES to publish.");
     return xml("");
    }
    const expires=new Date(Date.now()+15*60*1000).toISOString();
-   const {error:saveError}=await supabase.from("review_sms_pending").upsert({review_id:reviewId,reply_text:body,expires_at:expires});
+   const {error:saveError}=await supabase.from("review_sms_pending").upsert({review_id:reviewId,reply_text:simpleCommand.content,expires_at:expires});
    if(saveError)throw saveError;
-   await send(get("DAVID_NOTIFY_NUMBER"),"Preview for "+review.name+": "+body.slice(0,600)+"\\n\\nPublish under "+review.name+"'s review? Reply YES within 15 minutes or NO to cancel.");
+   await send(get("DAVID_NOTIFY_NUMBER"),"Preview for "+review.name+": "+simpleCommand.content.slice(0,600)+"\\n\\nPublish under "+review.name+"'s review? Reply YES within 15 minutes or NO to cancel.");
    return xml("");
   }
   if(command.type==="reply"){
