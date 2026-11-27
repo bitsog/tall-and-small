@@ -53,7 +53,7 @@ Deno.serve(async(req)=>{
    const simpleCommand=parseSimpleReplyCommand(body);
    const upper=body.toUpperCase();
    if(simpleCommand.type==="status"){
-    await send(get("DAVID_NOTIFY_NUMBER"),"Current review from "+review.name+": "+review.comment.slice(0,160)+". Reply naturally with your message; then YES to publish or NO to cancel.");
+    await send(get("DAVID_NOTIFY_NUMBER"),"Current review from "+review.name+": "+review.comment.slice(0,160)+". Reply naturally with your message; then YES to publish, NO to cancel a draft, or SKIP to move on.");
     return xml("");
    }
    if(simpleCommand.type==="reserved"){
@@ -64,6 +64,18 @@ Deno.serve(async(req)=>{
     const {error:deleteError}=await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
     if(deleteError)throw deleteError;
     await send(get("DAVID_NOTIFY_NUMBER"),"Draft cancelled. Reply with a new message for "+review.name+" whenever you're ready.");
+    return xml("");
+   }
+   if(simpleCommand.type==="skip"){
+    await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
+    const {data:nextId,error:advanceError}=await supabase.rpc("advance_review_sms",{p_review_id:reviewId});
+    if(advanceError)throw advanceError;
+    await send(get("DAVID_NOTIFY_NUMBER"),"Skipped "+review.name+"'s review without posting a reply.");
+    if(nextId){
+     const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
+     if(nextError)throw nextError;
+     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\n\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
+    }
     return xml("");
    }
    if(simpleCommand.type==="confirm"){
@@ -86,7 +98,7 @@ Deno.serve(async(req)=>{
     if(nextId){
      const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
      if(nextError)throw nextError;
-     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\\n\\nReply naturally, then YES to publish or NO to cancel.");
+     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\\n\\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
     }
     return xml("");
    }
