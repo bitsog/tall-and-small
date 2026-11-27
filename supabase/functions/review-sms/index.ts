@@ -98,7 +98,7 @@ Deno.serve(async(req)=>{
     if(nextId){
      const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
      if(nextError)throw nextError;
-     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\\n\\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
+     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\n\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
     }
     return xml("");
    }
@@ -109,7 +109,7 @@ Deno.serve(async(req)=>{
    const expires=new Date(Date.now()+15*60*1000).toISOString();
    const {error:saveError}=await supabase.from("review_sms_pending").upsert({review_id:reviewId,reply_text:simpleCommand.content,expires_at:expires});
    if(saveError)throw saveError;
-   await send(get("DAVID_NOTIFY_NUMBER"),"Preview for "+review.name+": "+simpleCommand.content.slice(0,600)+"\\n\\nPublish under "+review.name+"'s review? Reply YES within 15 minutes or NO to cancel.");
+   await send(get("DAVID_NOTIFY_NUMBER"),"Preview for "+review.name+": "+simpleCommand.content.slice(0,600)+"\n\nPublish under "+review.name+"'s review? Reply YES within 15 minutes or NO to cancel.");
    return xml("");
   }
   if(command.type==="reply"){
