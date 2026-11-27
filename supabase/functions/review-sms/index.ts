@@ -20,6 +20,17 @@ async function send(to:string,message:string){
  const res=await fetch("https://api.twilio.com/2010-04-01/Accounts/"+encodeURIComponent(sid)+"/Messages.json",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Authorization:"Basic "+btoa(sid+":"+token)},body});
  if(!res.ok)throw Error("SMS status "+res.status);
 }
+async function sendSafely(to:string,message:string){
+ try {await send(to,message);return true;}
+ catch(e){console.error("Outbound SMS notification failed",e);return false;}
+}
+async function deliverNext(nextId:string){
+ const {data:next,error:nextError}=await supabase.from("customer_reviews")
+  .select("name,rating,comment").eq("id",nextId).single();
+ if(nextError||!next){console.error("Could not load next review",nextError);await supabase.rpc("fail_review_sms_alert",{p_review_id:nextId});return;}
+ const sent=await sendSafely(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\\n\\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
+ if(!sent)await supabase.rpc("fail_review_sms_alert",{p_review_id:nextId});
+}
 Deno.serve(async(req)=>{
  if(req.method!=="POST")return new Response("Method not allowed",{status:405});
  if(!req.headers.get("content-type")?.includes("application/x-www-form-urlencoded"))return new Response("Unsupported Media Type",{status:415});
@@ -70,12 +81,8 @@ Deno.serve(async(req)=>{
     await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
     const {data:nextId,error:advanceError}=await supabase.rpc("advance_review_sms",{p_review_id:reviewId});
     if(advanceError)throw advanceError;
-    await send(get("DAVID_NOTIFY_NUMBER"),"Skipped "+review.name+"'s review without posting a reply.");
-    if(nextId){
-     const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
-     if(nextError)throw nextError;
-     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\n\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
-    }
+    await sendSafely(get("DAVID_NOTIFY_NUMBER"),"Skipped "+review.name+"'s review without posting a reply.");
+    if(nextId)await deliverNext(nextId);
     return xml("");
    }
    if(simpleCommand.type==="confirm"){
@@ -94,12 +101,8 @@ Deno.serve(async(req)=>{
     await supabase.from("review_sms_pending").delete().eq("review_id",reviewId);
     const {data:nextId,error:advanceError}=await supabase.rpc("advance_review_sms",{p_review_id:reviewId});
     if(advanceError)throw advanceError;
-    await send(get("DAVID_NOTIFY_NUMBER"),"Your reply to "+review.name+" is now published on the website.");
-    if(nextId){
-     const {data:next,error:nextError}=await supabase.from("customer_reviews").select("name,rating,comment").eq("id",nextId).single();
-     if(nextError)throw nextError;
-     await send(get("DAVID_NOTIFY_NUMBER"),"Next review: "+next.rating+"/5 stars from "+next.name+": "+next.comment.slice(0,180)+".\n\nReply naturally, then YES to publish, NO to cancel a draft, or SKIP to move on.");
-    }
+    await sendSafely(get("DAVID_NOTIFY_NUMBER"),"Your reply to "+review.name+" is now published on the website.");
+    if(nextId)await deliverNext(nextId);
     return xml("");
    }
    if(simpleCommand.type!=="draft"){
