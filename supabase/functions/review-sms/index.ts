@@ -4,6 +4,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { parseReplyCommand, twilioSignatureValid } from "./sms-protocol.js";
 import { parseSimpleReplyCommand } from "./simple-sms-protocol.js";
+import { handlePhotoMessage, isPhotoMessage } from "./photo-handler.js";
 const get=(n:string)=>Deno.env.get(n)||"";
 const supabase=createClient(get("SUPABASE_URL"),get("SUPABASE_SERVICE_ROLE_KEY"),{auth:{persistSession:false,autoRefreshToken:false}});
 const xml=(msg:string,status=200)=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',{status,headers:{"Content-Type":"text/xml; charset=utf-8"}});
@@ -40,9 +41,21 @@ Deno.serve(async(req)=>{
   if(!await twilioValid(req,form))return new Response("Forbidden",{status:403});
   // Only allow David's exact confirmed number to create public business replies.
   if(form.get("From")!==get("DAVID_NOTIFY_NUMBER")||form.get("To")!==get("TWILIO_FROM_NUMBER"))return xml("");
-  const sid=form.get("MessageSid")||"";if(!/^SM[a-f0-9]{32}$/i.test(sid))return xml("");
+  const sid=form.get("MessageSid")||"";if(!/^(?:SM|MM)[a-f0-9]{32}$/i.test(sid))return xml("");
   const {error:duplicate}=await supabase.from("review_sms_processed").insert({message_sid:sid});
   if(duplicate){if(duplicate.code==="23505")return xml("");throw duplicate}
+  // MMS photographs and explicit photo-job commands are handled independently
+  // from the review reply queue, so DONE/POST cannot confirm a customer reply.
+  if(isPhotoMessage(form)){
+   try {
+    await handlePhotoMessage({form,db:supabase,send,get});
+    return xml("");
+   } catch(error) {
+    // Let Twilio retry failed uploads; don't permanently mark a failed MMS handled.
+    await supabase.from("review_sms_processed").delete().eq("message_sid",sid);
+    throw error;
+   }
+  }
   const body=(form.get("Body")||"").trim();
   const command=parseReplyCommand(body);
   // Simplified SMS workflow: exactly one active review, with all other reviews queued.
