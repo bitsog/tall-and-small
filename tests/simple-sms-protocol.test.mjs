@@ -7,6 +7,7 @@ test("normal reply contains no technical review code",()=>{
 test("confirm and cancellation require explicit words",()=>{
  assert.deepEqual(parse(" yes "),{type:"confirm"});
  assert.deepEqual(parse("NO"),{type:"cancel"});
+ assert.deepEqual(parse("SKIP"),{type:"skip"});
  assert.deepEqual(parse("Yes, thanks!"),{type:"draft",content:"Yes, thanks!"});
 });
 test("opt-out and old command strings never post as natural replies",()=>{
