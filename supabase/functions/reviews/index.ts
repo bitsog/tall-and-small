@@ -15,10 +15,16 @@ async function notifyDavid(r:{id:string,review_code:string,name:string,rating:nu
  if(Deno.env.get("REVIEW_SMS_ENABLED")!=="true")return false;
  const sid=Deno.env.get("TWILIO_ACCOUNT_SID"), token=Deno.env.get("TWILIO_AUTH_TOKEN"), from=Deno.env.get("TWILIO_FROM_NUMBER"), to=Deno.env.get("DAVID_NOTIFY_NUMBER");
  if(!sid||!token||!from||!to)return false;
+ const simple=Deno.env.get("REVIEW_SIMPLE_SMS_ENABLED")==="true";
+ if(simple){
+  const {data:active,error:queueError}=await db.rpc("enqueue_review_sms",{p_review_id:r.id});
+  if(queueError)throw queueError;
+  if(!active)return false; // Another review is active; notify David only when it is completed.
+ }
  const {data:budget,error:budgetError}=await db.rpc("reserve_review_sms_alert");
  if(budgetError)throw budgetError;
  if(!budget)throw Error("Daily SMS budget reached");
- const body=new URLSearchParams({From:from,To:to,Body:`Tall and Small review ${r.review_code}: ${r.rating}/5 stars from ${r.name}: ${r.comment.slice(0,180)}.\n\nReply by text: REPLY ${r.review_code} Your message\nThen confirm with YES ${r.review_code}. Review replies only.`});
+ const body=new URLSearchParams({From:from,To:to,Body:simple?`New Tall and Small review: ${r.rating}/5 stars from ${r.name}: ${r.comment.slice(0,180)}.\n\nReply naturally with your response. Then reply YES to publish or NO to cancel. Other reviews wait their turn.`:`Tall and Small review ${r.review_code}: ${r.rating}/5 stars from ${r.name}: ${r.comment.slice(0,180)}.\n\nReply by text: REPLY ${r.review_code} Your message\nThen confirm with YES ${r.review_code}. Review replies only.`});
  const res=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,{method:"POST",headers:{Authorization:"Basic "+btoa(sid+":"+token),"Content-Type":"application/x-www-form-urlencoded"},body});
  if(!res.ok)throw new Error("SMS provider returned "+res.status);
  return true;
