@@ -44,6 +44,19 @@ Deno.serve(async(req)=>{
   const sid=form.get("MessageSid")||"";if(!/^(?:SM|MM)[a-f0-9]{32}$/i.test(sid))return xml("");
   const {error:duplicate}=await supabase.from("review_sms_processed").insert({message_sid:sid});
   if(duplicate){if(duplicate.code==="23505")return xml("");throw duplicate}
+  // Help is always available, regardless of an active photo job or review queue.
+  // Owner link lives in the website footer rather than in every help SMS.
+  const helpText=(form.get("Body")||"").trim().toUpperCase();
+  if(helpText==="HELP"||helpText==="COMMANDS"){
+   await send(get("DAVID_NOTIFY_NUMBER"),
+    "Tall and Small help:\n\nSend a picture to start an AFTER-only job.\nJOB = new BEFORE/AFTER job\nBEFORE / AFTER = choose picture type\nDONE = review photos\nPOST = publish\nMORE = add more photos\nHOLD / RESUME = save / reopen job\nPHOTOS = job photo count\nNAME Backyard Cleanup = rename\nREVIEW = review reply help\n\nOwner Login is at the bottom of the website.");
+   return xml("");
+  }
+  if(helpText==="REVIEW"){
+   await send(get("DAVID_NOTIFY_NUMBER"),
+    "Customer reviews: When a new review arrives, text your response in your own words. Then reply YES to publish that reply. NO cancels your draft, SKIP moves to the next review. Photo projects use POST instead of YES.");
+   return xml("");
+  }
   // MMS photographs and explicit photo-job commands are handled independently
   // from the review reply queue, so DONE/POST cannot confirm a customer reply.
   if(isPhotoMessage(form)){
