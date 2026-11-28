@@ -17,6 +17,15 @@ button{background:#103c29;color:white;border:0;cursor:pointer;margin:10px 10px 0
 button:disabled{opacity:.6;cursor:wait}
 .secondary{background:#e4eac9;color:#103c29}
 .entry{border-bottom:1px solid #ddd;padding:14px 0}
+.project{border:1px solid #d5dbc8;border-radius:12px;margin:12px 0;padding:15px}
+.project-header{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.project-header h3{margin:0;flex:1}
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:12px}
+.photo-tile{border:1px solid #d8dfd4;border-radius:9px;padding:8px;margin:0}
+.photo-tile img{width:100%;height:110px;object-fit:cover;border-radius:6px}
+.photo-tile button{width:100%;font-size:13px;padding:8px;margin:5px 0 0}
+.project-status{font-size:13px;color:#48614f}
+
 #message{min-height:22px;white-space:pre-wrap}
 .small{font-size:14px;color:#4f6858}
 [hidden]{display:none!important}
@@ -65,6 +74,11 @@ window.TALL_SMALL_OWNER = {
 <h2>Customer reviews</h2>
 <p id="dashboardStatus" role="status"></p>
 <div id="list"></div>
+<h2 style="margin-top:28px">Our Work — photo projects</h2>
+<p class="small">Rename jobs, hide incorrect photos, and archive or restore projects. Original pictures remain privately stored.</p>
+<button id="refreshProjects" class="secondary" type="button">Refresh projects</button>
+<p id="projectStatus" role="status"></p>
+<div id="projectList"></div>
 </section>
 </main>
 <script>
@@ -94,6 +108,73 @@ window.TALL_SMALL_OWNER = {
  const client=window.supabase.createClient(config.supabaseUrl,config.anonKey);
  let session=null,loading=false;
  const busy=value=>{loading=value;$("signIn").disabled=value};
+ const textNode=(tag,value,cls)=>{const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=value;return e};
+ async function projectAction(body){
+   if(!session?.access_token)throw Error("Please sign in again.");
+   const resp=await fetch(config.supabaseUrl+"/functions/v1/work-owner",{
+     method:"PATCH",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token,"apikey":config.anonKey},
+     body:JSON.stringify(body)});
+   const data=await resp.json().catch(()=>({}));
+   if(!resp.ok)throw Error(data.error||"Request failed");
+   return data;
+ }
+ async function loadProjects(){
+   if(!session)return;
+   const status=$("projectStatus"),list=$("projectList");
+   status.textContent="Loading photo projects…";
+   try {
+     const resp=await fetch(config.supabaseUrl+"/functions/v1/work-owner",{
+       headers:{"Authorization":"Bearer "+session.access_token,"apikey":config.anonKey}});
+     const result=await resp.json();
+     if(!resp.ok)throw Error(result.error||"Unable to load projects");
+     list.replaceChildren();
+     const projects=result.projects||[];
+     status.textContent=projects.length?projects.length+" project(s)":"No photo projects yet.";
+     for(const p of projects){
+       const wrap=document.createElement("article");wrap.className="project";
+       const hdr=document.createElement("div");hdr.className="project-header";
+       hdr.append(textNode("h3",p.title),textNode("span",p.status,"project-status"));
+       wrap.append(hdr);
+       const rename=document.createElement("button");rename.className="secondary";rename.textContent="Rename";
+       rename.onclick=async()=>{
+         const title=prompt("New project title (no address or customer details)",p.title);
+         if(title===null)return;
+         rename.disabled=true;
+         try{await projectAction({action:"rename",project_id:p.id,title});await loadProjects()}
+         catch(e){status.textContent=e.message}finally{rename.disabled=false}
+       };
+       wrap.append(rename);
+       const archive=document.createElement("button");archive.textContent=p.status==="archived"?"Restore job":"Archive job";
+       archive.className="secondary";
+       archive.onclick=async()=>{
+         const operation=p.status==="archived"?"restore":"archive";
+         if(!confirm(operation==="archive"?"Hide this entire project from the public site?":"Restore this project?"))return;
+         archive.disabled=true;
+         try{await projectAction({action:operation,project_id:p.id});await loadProjects()}
+         catch(e){status.textContent=e.message}finally{archive.disabled=false}
+       };
+       wrap.append(archive);
+       const grid=document.createElement("div");grid.className="photo-grid";
+       for(const photo of p.photos||[]){
+         const tile=document.createElement("figure");tile.className="photo-tile";
+         const picture=document.createElement("img");picture.alt=photo.type+" photo";picture.loading="lazy";
+         if(photo.url)picture.src=photo.url;
+         const caption=textNode("figcaption",photo.type.toUpperCase()+(photo.hidden?" — Hidden":""));
+         const toggle=document.createElement("button");
+         toggle.className="secondary";toggle.textContent=photo.hidden?"Restore photo":"Hide photo";
+         toggle.onclick=async()=>{
+           if(!photo.hidden&&!confirm("Hide this photo from the public website?"))return;
+           toggle.disabled=true;
+           try{await projectAction({action:photo.hidden?"restore_photo":"hide_photo",project_id:p.id,photo_id:photo.id});await loadProjects()}
+           catch(e){status.textContent=e.message}finally{toggle.disabled=false}
+         };
+         tile.append(picture,caption,toggle);grid.append(tile);
+       }
+       wrap.append(grid);list.append(wrap);
+     }
+   } catch(e){status.textContent="Could not load photo projects: "+String(e.message||e)}
+ }
+ $("refreshProjects").addEventListener("click",loadProjects);
  async function render(){
    const {data,error}=await client.auth.getSession();
    if(error)throw error;
@@ -128,6 +209,7 @@ window.TALL_SMALL_OWNER = {
      };
      d.append(header,comment,label,area,save,hide);root.append(d);
    }
+   await loadProjects();
  }
  $("loginForm").addEventListener("submit",async e=>{
    e.preventDefault();if(loading)return;
