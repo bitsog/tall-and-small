@@ -106,7 +106,13 @@ Deno.serve(async req=>{
   if(req.method==="PATCH"){
    const bearer=(req.headers.get("authorization")||"").replace(/^Bearer\s+/i,"");
    const {data:{user},error}=await db.auth.getUser(bearer);
-   if(error||!user||user.id!==Deno.env.get("REVIEW_OWNER_USER_ID"))return reply({error:"Unauthorized"},401);
+   if(error||!user||!user.email||!user.email_confirmed_at)return reply({error:"Unauthorized"},401);
+   // Never authorize based solely on signing into Supabase. Restrict to verified
+   // allowlisted owner accounts; the allowlist is readable only via service role.
+   const {data:owner,error:ownerError}=await db.from("website_owner_emails")
+    .select("email").eq("email",user.email.trim().toLowerCase()).maybeSingle();
+   if(ownerError)throw ownerError;
+   if(!owner)return reply({error:"Unauthorized"},403);
    const j=await req.json(),id=String(j.id||"");
    if(!/^[0-9a-f-]{36}$/i.test(id))return reply({error:"Invalid review id"},400);
    const updates:Record<string,unknown>={};

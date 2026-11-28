@@ -1,10 +1,33 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>David's Review Dashboard</title><style>body{font:16px/1.5 system-ui;background:#fff5d9;color:#103c29;margin:0}main{max-width:650px;margin:auto;padding:24px}section{background:#fff;border-radius:12px;padding:18px;margin:16px 0}input,textarea,button{font:inherit;max-width:100%;padding:10px;border-radius:7px}textarea{width:100%;min-height:90px}button{background:#103c29;color:#fff;border:0;cursor:pointer}.entry{border-bottom:1px solid #bbb;padding:14px 0}.star{color:#bc8400;font-size:20px}</style><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script><script src="owner-settings.js"></script></head><body><main><h1>David's review dashboard</h1><p>Private management page. Only the designated owner account can publish responses or hide abusive reviews.</p><section id="login"><h2>Sign in</h2><p>Enter your authorized email to receive a sign-in link.</p><input id="email" type="email" placeholder="Email address"><button id="send">Send sign-in link</button><p id="message"></p></section><section id="dashboard" hidden><button id="logout">Sign out</button><h2>Customer reviews</h2><div id="list"></div></section></main><script>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tall and Small Owner Portal</title><style>body{font:16px/1.5 system-ui;background:#fff5d9;color:#103c29;margin:0}main{max-width:650px;margin:auto;padding:24px}section{background:#fff;border-radius:12px;padding:18px;margin:16px 0}input,textarea,button{font:inherit;max-width:100%;padding:10px;border-radius:7px}textarea{width:100%;min-height:90px}button{background:#103c29;color:#fff;border:0;cursor:pointer}.entry{border-bottom:1px solid #bbb;padding:14px 0}.star{color:#bc8400;font-size:20px}</style><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script><script src="owner-settings.js"></script></head><body><main><h1>Owner Portal</h1><p>Private management page for the authorized Tall and Small owner. Manage customer reviews here. Photo editing is coming later.</p><section id="login"><h2>Owner sign in</h2><p>Sign in with your owner username and password.</p><label for="email">Username</label><input id="email" type="text" autocomplete="username" placeholder="Owner username"><label for="password" style="display:block;margin-top:12px">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Password"><button id="send" style="display:block;margin-top:12px">Sign in</button><p class="smallnote">Forgot your password? Use the reset button below to email a reset link to the owner.</p><button id="reset" type="button">Reset password</button><p id="message" role="status"></p></section><section id="dashboard" hidden><button id="logout">Sign out</button><h2>Customer reviews</h2><div id="list"></div></section></main><script>
 (async()=>{
 const c=window.TALL_SMALL_OWNER||{};const msg=document.getElementById('message'),dash=document.getElementById('dashboard'),login=document.getElementById('login');
-if(!c.supabaseUrl||!c.anonKey||!c.apiUrl){msg.textContent='Owner dashboard setup is incomplete.';return}
+if(!c.supabaseUrl||!c.anonKey||!c.apiUrl||!c.ownerEmail||!c.ownerUsername){msg.textContent='Owner dashboard setup is incomplete.';return}
 const client=supabase.createClient(c.supabaseUrl,c.anonKey);let session;
 async function load(){let s=await client.auth.getSession();session=s.data.session;login.hidden=!!session;dash.hidden=!session;if(!session)return;const res=await fetch(c.apiUrl);if(!res.ok){document.getElementById('list').textContent='Unable to load reviews';return}const j=await res.json();const root=document.getElementById('list');root.replaceChildren();for(const r of j.reviews||[]){const d=document.createElement('div');d.className='entry';const title=document.createElement('strong');title.textContent=r.name+' — '+r.rating+'/5 stars';const review=document.createElement('p');review.textContent=r.comment;const label=document.createElement('label');label.textContent='David’s public reply';const area=document.createElement('textarea');area.value=r.owner_reply||'';const save=document.createElement('button');save.textContent='Publish reply';save.onclick=async()=>{const z=await fetch(c.apiUrl,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({id:r.id,owner_reply:area.value})});alert(z.ok?'Reply saved':'Could not save response')};const hide=document.createElement('button');hide.textContent='Hide abusive review';hide.style.marginLeft='8px';hide.onclick=async()=>{if(!confirm('Hide this review from the website?'))return;const z=await fetch(c.apiUrl,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({id:r.id,status:'hidden'})});if(z.ok)load();else alert('Could not hide review')};d.append(title,review,label,area,save,hide);root.append(d)}}}
-document.getElementById('send').onclick=async()=>{const email=document.getElementById('email').value.trim();if(!email)return;const {error}=await client.auth.signInWithOtp({email,options:{emailRedirectTo:location.href.split('#')[0]}});msg.textContent=error?'Unable to send login link':'Check your email for a sign-in link.'};
+document.getElementById('send').onclick=async()=>{
+ const username=document.getElementById('email').value.trim();
+ const password=document.getElementById('password').value;
+ if(username.toLowerCase()!==c.ownerUsername.toLowerCase()||!password){msg.textContent='Enter your owner username and password.';return}
+ const {error}=await client.auth.signInWithPassword({email:c.ownerEmail,password});
+ msg.textContent=error?'Sign-in failed. Check your username and password.':'Signed in.';
+ if(!error)await load();
+};
+document.getElementById('reset').onclick=async()=>{
+ const {error}=await client.auth.resetPasswordForEmail(c.ownerEmail,{redirectTo:location.href.split('#')[0]});
+ msg.textContent=error?'Password reset could not be requested.':'If the owner account exists, a reset link has been emailed.';
+};
+client.auth.onAuthStateChange((event)=>{
+ if(event==='PASSWORD_RECOVERY')showNewPassword();
+});
+async function showNewPassword(){
+ const box=document.getElementById('login');
+ box.hidden=false;
+ const input=document.createElement('input');input.type='password';input.placeholder='Choose a new password';input.autocomplete='new-password';
+ const save=document.createElement('button');save.textContent='Save new password';
+ save.onclick=async()=>{if(input.value.length<12){msg.textContent='Use at least 12 characters.';return}
+ const {error}=await client.auth.updateUser({password:input.value});msg.textContent=error?'Could not update password.':'Password updated; you can sign in.';if(!error){input.remove();save.remove()}};
+ box.append(input,save);
+}
 document.getElementById('logout').onclick=async()=>{await client.auth.signOut();location.reload()};
 client.auth.onAuthStateChange(()=>setTimeout(load,0));await load();
 })();
