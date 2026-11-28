@@ -15,7 +15,7 @@ Deno.serve(async(req)=>{
   const out=[];
   for(const p of projects||[]){
    const {data:photos,error:photosError}=await db.from("work_photos")
-    .select("photo_type,public_path,created_at").eq("project_id",p.id).order("created_at",{ascending:true});
+    .select("photo_type,public_path,created_at,hidden_at").eq("project_id",p.id).is("hidden_at",null).order("created_at",{ascending:true});
    if(photosError)throw photosError;
    const visible=(photos||[]).filter(x=>typeof x.public_path==="string"&&x.public_path.length>0).slice(0,24);
    if(!visible.length)continue;
