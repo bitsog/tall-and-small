@@ -1,34 +1,154 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tall and Small Owner Portal</title><style>body{font:16px/1.5 system-ui;background:#fff5d9;color:#103c29;margin:0}main{max-width:650px;margin:auto;padding:24px}section{background:#fff;border-radius:12px;padding:18px;margin:16px 0}input,textarea,button{font:inherit;max-width:100%;padding:10px;border-radius:7px}textarea{width:100%;min-height:90px}button{background:#103c29;color:#fff;border:0;cursor:pointer}.entry{border-bottom:1px solid #bbb;padding:14px 0}.star{color:#bc8400;font-size:20px}</style><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script><script src="owner-settings.js"></script></head><body><main><h1>Owner Portal</h1><p>Private management page for the authorized Tall and Small owner. Manage customer reviews here. Photo editing is coming later.</p><section id="login"><h2>Owner sign in</h2><p>Sign in with your owner username and password.</p><label for="email">Username</label><input id="email" type="text" autocomplete="username" placeholder="Owner username"><label for="password" style="display:block;margin-top:12px">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Password"><button id="send" style="display:block;margin-top:12px">Sign in</button><p class="smallnote">Forgot your password? Use the reset button below to email a reset link to the owner.</p><button id="reset" type="button">Reset password</button><p id="message" role="status"></p></section><section id="dashboard" hidden><button id="logout">Sign out</button><h2>Customer reviews</h2><div id="list"></div></section></main><script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Owner Portal | Tall and Small Yard Work</title>
+<style>
+*{box-sizing:border-box}
+body{font:16px/1.5 system-ui,sans-serif;background:#fff5d9;color:#103c29;margin:0}
+main{max-width:680px;margin:auto;padding:32px 20px}
+section{background:#fff;border-radius:12px;padding:20px;margin:18px 0}
+h1{font-size:30px}h2{margin-top:0}
+label{display:block;font-weight:600;margin-top:15px}
+input,textarea,button{font:inherit;max-width:100%;padding:11px;border-radius:8px}
+input{display:block;width:100%;border:1px solid #849c8b;margin-top:5px}
+textarea{width:100%;min-height:90px}
+button{background:#103c29;color:white;border:0;cursor:pointer;margin:10px 10px 0 0}
+button:disabled{opacity:.6;cursor:wait}
+.secondary{background:#e4eac9;color:#103c29}
+.entry{border-bottom:1px solid #ddd;padding:14px 0}
+#message{min-height:22px;white-space:pre-wrap}
+.small{font-size:14px;color:#4f6858}
+[hidden]{display:none!important}
+</style>
+<script src="owner-settings.js"></script>
+</head>
+<body><main>
+<p class="small"><a href="/">← Back to Tall and Small</a></p>
+<h1>Owner Portal</h1>
+<p>Private business management. Sign in to manage customer reviews. Photo management is coming later.</p>
+<section id="login">
+<h2>Owner sign in</h2>
+<form id="loginForm">
+<label for="username">Username<input id="username" autocomplete="username" value="iboyr" required></label>
+<label for="password">Password<input id="password" type="password" autocomplete="current-password" required></label>
+<button id="signIn" type="submit">Sign in</button>
+</form>
+<p id="message" role="status" aria-live="polite">Preparing secure login…</p>
+<p class="small">Forgot your password? A reset link will be sent to the authorized owner email.</p>
+<button id="reset" type="button" class="secondary">Reset password</button>
+</section>
+<section id="recovery" hidden>
+<h2>Choose a new password</h2>
+<form id="recoveryForm">
+<label for="newPassword">New password<input id="newPassword" type="password" autocomplete="new-password" minlength="12" required></label>
+<button type="submit">Save new password</button>
+</form>
+<p id="recoveryMessage" role="status"></p>
+</section>
+<section id="dashboard" hidden>
+<button id="logout" class="secondary">Sign out</button>
+<h2>Customer reviews</h2>
+<p id="dashboardStatus" role="status"></p>
+<div id="list"></div>
+</section>
+</main>
+<script>
 (async()=>{
-const c=window.TALL_SMALL_OWNER||{};const msg=document.getElementById('message'),dash=document.getElementById('dashboard'),login=document.getElementById('login');
-if(!c.supabaseUrl||!c.anonKey||!c.apiUrl||!c.ownerEmail||!c.ownerUsername){msg.textContent='Owner dashboard setup is incomplete.';return}
-const client=supabase.createClient(c.supabaseUrl,c.anonKey);let session;
-async function load(){let s=await client.auth.getSession();session=s.data.session;login.hidden=!!session;dash.hidden=!session;if(!session)return;const res=await fetch(c.apiUrl);if(!res.ok){document.getElementById('list').textContent='Unable to load reviews';return}const j=await res.json();const root=document.getElementById('list');root.replaceChildren();for(const r of j.reviews||[]){const d=document.createElement('div');d.className='entry';const title=document.createElement('strong');title.textContent=r.name+' — '+r.rating+'/5 stars';const review=document.createElement('p');review.textContent=r.comment;const label=document.createElement('label');label.textContent='David’s public reply';const area=document.createElement('textarea');area.value=r.owner_reply||'';const save=document.createElement('button');save.textContent='Publish reply';save.onclick=async()=>{const z=await fetch(c.apiUrl,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({id:r.id,owner_reply:area.value})});alert(z.ok?'Reply saved':'Could not save response')};const hide=document.createElement('button');hide.textContent='Hide abusive review';hide.style.marginLeft='8px';hide.onclick=async()=>{if(!confirm('Hide this review from the website?'))return;const z=await fetch(c.apiUrl,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({id:r.id,status:'hidden'})});if(z.ok)load();else alert('Could not hide review')};d.append(title,review,label,area,save,hide);root.append(d)}}}
-document.getElementById('send').onclick=async()=>{
- const username=document.getElementById('email').value.trim();
- const password=document.getElementById('password').value;
- if(username.toLowerCase()!==c.ownerUsername.toLowerCase()||!password){msg.textContent='Enter your owner username and password.';return}
- const {error}=await client.auth.signInWithPassword({email:c.ownerEmail,password});
- msg.textContent=error?'Sign-in failed. Check your username and password.':'Signed in.';
- if(!error)await load();
-};
-document.getElementById('reset').onclick=async()=>{
- const {error}=await client.auth.resetPasswordForEmail(c.ownerEmail,{redirectTo:location.href.split('#')[0]});
- msg.textContent=error?'Password reset could not be requested.':'If the owner account exists, a reset link has been emailed.';
-};
-client.auth.onAuthStateChange((event)=>{
- if(event==='PASSWORD_RECOVERY')showNewPassword();
-});
-async function showNewPassword(){
- const box=document.getElementById('login');
- box.hidden=false;
- const input=document.createElement('input');input.type='password';input.placeholder='Choose a new password';input.autocomplete='new-password';
- const save=document.createElement('button');save.textContent='Save new password';
- save.onclick=async()=>{if(input.value.length<12){msg.textContent='Use at least 12 characters.';return}
- const {error}=await client.auth.updateUser({password:input.value});msg.textContent=error?'Could not update password.':'Password updated; you can sign in.';if(!error){input.remove();save.remove()}};
- box.append(input,save);
-}
-document.getElementById('logout').onclick=async()=>{await client.auth.signOut();location.reload()};
-client.auth.onAuthStateChange(()=>setTimeout(load,0));await load();
+ const $=id=>document.getElementById(id);
+ const msg=$("message"),login=$("login"),dash=$("dashboard");
+ const config=window.TALL_SMALL_OWNER;
+ if(!config?.supabaseUrl||!config?.anonKey||!config?.apiUrl||!config?.ownerUsername||!config?.ownerEmail){
+   msg.textContent="Login configuration is unavailable. Contact the website administrator.";return;
+ }
+ async function loadSdk(url){
+   return new Promise((resolve,reject)=>{
+     const s=document.createElement("script");s.src=url;
+     s.onload=()=>window.supabase?.createClient?resolve():reject(Error("SDK unavailable"));
+     s.onerror=()=>reject(Error("SDK load failed"));
+     document.head.append(s);
+   });
+ }
+ try{
+   if(!window.supabase?.createClient){
+     try{await loadSdk("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js")}
+     catch{await loadSdk("https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js")}
+   }
+ }catch{
+   msg.textContent="The secure login library could not load. Check your connection or browser content blockers, then refresh this page.";return;
+ }
+ const client=window.supabase.createClient(config.supabaseUrl,config.anonKey);
+ let session=null,loading=false;
+ const busy=value=>{loading=value;$("signIn").disabled=value};
+ async function render(){
+   const {data,error}=await client.auth.getSession();
+   if(error)throw error;
+   session=data.session;
+   login.hidden=!!session;
+   dash.hidden=!session;
+   if(!session)return;
+   $("dashboardStatus").textContent="Loading customer reviews…";
+   const root=$("list");root.replaceChildren();
+   const response=await fetch(config.apiUrl,{headers:{Accept:"application/json"}});
+   if(!response.ok)throw Error("Reviews could not be loaded");
+   const dataReviews=await response.json();
+   $("dashboardStatus").textContent=(dataReviews.reviews||[]).length?"":"No customer reviews yet.";
+   for(const review of dataReviews.reviews||[]){
+     const d=document.createElement("div");d.className="entry";
+     const header=document.createElement("strong");header.textContent=review.name+" — "+review.rating+"/5 stars";
+     const comment=document.createElement("p");comment.textContent=review.comment;
+     const label=document.createElement("label");label.textContent="Public owner response";
+     const area=document.createElement("textarea");area.value=review.owner_reply||"";
+     const save=document.createElement("button");save.textContent="Save reply";
+     save.onclick=async()=>{save.disabled=true;try{
+       const r=await fetch(config.apiUrl,{method:"PATCH",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},body:JSON.stringify({id:review.id,owner_reply:area.value})});
+       if(!r.ok)throw Error("Save rejected ("+r.status+")");
+       $("dashboardStatus").textContent="Reply saved.";
+     }catch(e){$("dashboardStatus").textContent=e.message}finally{save.disabled=false}};
+     const hide=document.createElement("button");hide.className="secondary";hide.textContent="Hide inappropriate review";
+     hide.onclick=async()=>{if(!confirm("Hide this review from the public website?"))return;
+       try{const r=await fetch(config.apiUrl,{method:"PATCH",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},body:JSON.stringify({id:review.id,status:"hidden"})});
+       if(!r.ok)throw Error("Not authorized or unable to hide review ("+r.status+")");
+       await render();
+       }catch(e){$("dashboardStatus").textContent=e.message}
+     };
+     d.append(header,comment,label,area,save,hide);root.append(d);
+   }
+ }
+ $("loginForm").addEventListener("submit",async e=>{
+   e.preventDefault();if(loading)return;
+   if($("username").value.trim().toLowerCase()!==config.ownerUsername.toLowerCase()){
+     msg.textContent="That username doesn't match the owner account.";return;
+   }
+   busy(true);msg.textContent="Signing in…";
+   try{
+     const {error}=await client.auth.signInWithPassword({email:config.ownerEmail,password:$("password").value});
+     if(error){msg.textContent=error.message||"Username or password not accepted.";return}
+     $("password").value="";
+     await render();
+   }catch(err){msg.textContent="Login could not complete: "+String(err.message||err)}
+   finally{busy(false)}
+ });
+ $("reset").addEventListener("click",async()=>{
+   $("reset").disabled=true;msg.textContent="Requesting reset email…";
+   try{
+     const {error}=await client.auth.resetPasswordForEmail(config.ownerEmail,{redirectTo:location.origin+"/owner.html"});
+     msg.textContent=error?"Password reset was not available: "+error.message:"If the account exists, a password reset link has been emailed.";
+   }catch(err){msg.textContent="Password reset failed: "+String(err.message||err)}
+   finally{$("reset").disabled=false}
+ });
+ $("recoveryForm").addEventListener("submit",async e=>{
+   e.preventDefault();$("recoveryMessage").textContent="Saving password…";
+   const {error}=await client.auth.updateUser({password:$("newPassword").value});
+   $("recoveryMessage").textContent=error?error.message:"Password updated. You can now sign in.";
+ });
+ $("logout").addEventListener("click",async()=>{await client.auth.signOut();location.reload()});
+ client.auth.onAuthStateChange((event)=>{
+   if(event==="PASSWORD_RECOVERY"){$("recovery").hidden=false;dash.hidden=true;login.hidden=true}
+ });
+ try{await render();if(!session)msg.textContent="Enter your username and password to sign in."}
+ catch(err){msg.textContent="The login service could not start: "+String(err.message||err)}
 })();
-</script></body></html>
+</script>
+</body>
+</html>
