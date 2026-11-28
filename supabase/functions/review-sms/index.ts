@@ -49,7 +49,7 @@ Deno.serve(async(req)=>{
   const helpText=(form.get("Body")||"").trim().toUpperCase();
   if(helpText==="HELP"||helpText==="COMMANDS"){
    await send(get("DAVID_NOTIFY_NUMBER"),
-    "Tall and Small help:\n\nSend a picture to start an AFTER-only job.\nJOB = new BEFORE/AFTER job\nBEFORE / AFTER = choose picture type\nDONE = review photos\nPOST = publish\nMORE = add more photos\nHOLD / RESUME = save / reopen job\nPHOTOS = job photo count\nNAME Backyard Cleanup = rename\nREVIEW = review reply help\n\nOwner Login is at the bottom of the website.");
+    `Tall and Small help:\n\nSend a picture to start an AFTER-only job.\nJOB = new BEFORE/AFTER job\nBEFORE / AFTER = choose picture type\nDONE = review photos\nPOST = publish\nMORE = add more photos\nHOLD / RESUME = save / reopen job\nPHOTOS = job photo count\nNAME Backyard Cleanup = rename\nREVIEW = review reply help\n\nOwner Login is at the bottom of the website.");
    return xml("");
   }
   if(helpText==="REVIEW"){
