@@ -7,7 +7,7 @@ window.TALL_SMALL_OWNER = {
  // All password recovery mail currently goes to Ben's Gmail inbox.
  users:{
   ben:"ben.rahm@gmail.com",
-  david:"ben.rahm+tallsmall-david@gmail.com",
+  chinecherem:"ben.rahm+tallsmall-david@gmail.com",
   julia:"ben.rahm+tallsmall-julia@gmail.com"
  }
 };
