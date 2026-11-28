@@ -21,21 +21,21 @@ button:disabled{opacity:.6;cursor:wait}
 .small{font-size:14px;color:#4f6858}
 [hidden]{display:none!important}
 </style>
-<script src="owner-settings.js"></script>
+<script src="owner-settings.js?v=three-owners-20261128"></script>
 </head>
 <body><main>
 <p class="small"><a href="/">← Back to Tall and Small</a></p>
 <h1>Owner Portal</h1>
-<p>Private business management. Sign in to manage customer reviews. Photo management is coming later.</p>
+<p>Private business management. Each person has their own username and password. Photo management is coming later.</p>
 <section id="login">
 <h2>Owner sign in</h2>
 <form id="loginForm">
-<label for="username">Username<input id="username" autocomplete="username" value="iboyr" required></label>
+<label for="username">Username<input id="username" autocomplete="username" placeholder="ben, david, or julia" required></label>
 <label for="password">Password<input id="password" type="password" autocomplete="current-password" required></label>
 <button id="signIn" type="submit">Sign in</button>
 </form>
 <p id="message" role="status" aria-live="polite">Preparing secure login…</p>
-<p class="small">Forgot your password? A reset link will be sent to the authorized owner email.</p>
+<p class="small">Forgot your password? Enter your username, then request a reset. For now, all recovery emails go to Ben.</p>
 <button id="reset" type="button" class="secondary">Reset password</button>
 </section>
 <section id="recovery" hidden>
@@ -58,7 +58,7 @@ button:disabled{opacity:.6;cursor:wait}
  const $=id=>document.getElementById(id);
  const msg=$("message"),login=$("login"),dash=$("dashboard");
  const config=window.TALL_SMALL_OWNER;
- if(!config?.supabaseUrl||!config?.anonKey||!config?.apiUrl||!config?.ownerUsername||!config?.ownerEmail){
+ if(!config?.supabaseUrl||!config?.anonKey||!config?.apiUrl||!config?.users||typeof config.users!=="object"){
    msg.textContent="Login configuration is unavailable. Contact the website administrator.";return;
  }
  async function loadSdk(url){
@@ -117,12 +117,13 @@ button:disabled{opacity:.6;cursor:wait}
  }
  $("loginForm").addEventListener("submit",async e=>{
    e.preventDefault();if(loading)return;
-   if($("username").value.trim().toLowerCase()!==config.ownerUsername.toLowerCase()){
-     msg.textContent="That username doesn't match the owner account.";return;
+   const username=$("username").value.trim().toLowerCase();
+   if(!Object.prototype.hasOwnProperty.call(config.users,username)){
+     msg.textContent="That username isn't configured. Use ben, david, or julia.";return;
    }
    busy(true);msg.textContent="Signing in…";
    try{
-     const {error}=await client.auth.signInWithPassword({email:config.ownerEmail,password:$("password").value});
+     const {error}=await client.auth.signInWithPassword({email:config.users[username],password:$("password").value});
      if(error){msg.textContent=error.message||"Username or password not accepted.";return}
      $("password").value="";
      await render();
@@ -132,7 +133,10 @@ button:disabled{opacity:.6;cursor:wait}
  $("reset").addEventListener("click",async()=>{
    $("reset").disabled=true;msg.textContent="Requesting reset email…";
    try{
-     const {error}=await client.auth.resetPasswordForEmail(config.ownerEmail,{redirectTo:location.origin+"/owner.html"});
+     const username=$("username").value.trim().toLowerCase();
+     const email=Object.prototype.hasOwnProperty.call(config.users,username)?config.users[username]:null;
+     if(!email){msg.textContent="Enter ben, david, or julia above before requesting a reset.";return}
+     const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/owner.html"});
      msg.textContent=error?"Password reset was not available: "+error.message:"If the account exists, a password reset link has been emailed.";
    }catch(err){msg.textContent="Password reset failed: "+String(err.message||err)}
    finally{$("reset").disabled=false}
@@ -146,7 +150,7 @@ button:disabled{opacity:.6;cursor:wait}
  client.auth.onAuthStateChange((event)=>{
    if(event==="PASSWORD_RECOVERY"){$("recovery").hidden=false;dash.hidden=true;login.hidden=true}
  });
- try{await render();if(!session)msg.textContent="Enter your username and password to sign in."}
+ try{await render();if(!session)msg.textContent="Enter ben, david, or julia and your own password."}
  catch(err){msg.textContent="The login service could not start: "+String(err.message||err)}
 })();
 </script>
