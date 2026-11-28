@@ -92,10 +92,15 @@ Deno.serve(async req=>{
     const {error:u}=await db.from("work_projects").update({status:"archived",archived_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id);err(u);
    } else {
     if(job.status!=="archived")return respond({error:"Only archived projects can be restored"},409);
-    // Avoid accidentally creating a second active MMS job.
-    if(!job.published_at)return respond({error:"Unpublished drafts can be restored in the next portal update"},409);
-    for(const p of photos||[])if(!p.hidden_at)await makePublic(p);
-    const {error:u}=await db.from("work_projects").update({status:"published",archived_at:null,updated_at:new Date().toISOString()}).eq("id",id);err(u);
+    // Preserve drafts without exposing them publicly; prevent two active SMS jobs.
+    if(!job.published_at){
+      const {data:active,error:activeErr}=await db.from("work_projects").select("id").in("status",["draft","awaiting_publish"]).neq("id",id).limit(1);err(activeErr);
+      const nextStatus=active?.length?"held":"draft";
+      const {error:u}=await db.from("work_projects").update({status:nextStatus,archived_at:null,updated_at:new Date().toISOString()}).eq("id",id);err(u);
+    } else {
+      for(const p of photos||[])if(!p.hidden_at)await makePublic(p);
+      const {error:u}=await db.from("work_projects").update({status:"published",archived_at:null,updated_at:new Date().toISOString()}).eq("id",id);err(u);
+    }
    }
    return respond({ok:true});
   }
