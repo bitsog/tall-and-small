@@ -30,7 +30,7 @@ button:disabled{opacity:.6;cursor:wait}
 <section id="login">
 <h2>Owner sign in</h2>
 <form id="loginForm">
-<label for="username">Username<input id="username" autocomplete="username" placeholder="ben, david, or julia" required></label>
+<label for="username">Username<input id="username" autocomplete="username" placeholder="ben, chinecherem, or julia" required></label>
 <label for="password">Password<input id="password" type="password" autocomplete="current-password" required></label>
 <button id="signIn" type="submit">Sign in</button>
 </form>
@@ -119,7 +119,7 @@ button:disabled{opacity:.6;cursor:wait}
    e.preventDefault();if(loading)return;
    const username=$("username").value.trim().toLowerCase();
    if(!Object.prototype.hasOwnProperty.call(config.users,username)){
-     msg.textContent="That username isn't configured. Use ben, david, or julia.";return;
+     msg.textContent="That username isn't configured. Use ben, chinecherem, or julia.";return;
    }
    busy(true);msg.textContent="Signing in…";
    try{
@@ -135,7 +135,7 @@ button:disabled{opacity:.6;cursor:wait}
    try{
      const username=$("username").value.trim().toLowerCase();
      const email=Object.prototype.hasOwnProperty.call(config.users,username)?config.users[username]:null;
-     if(!email){msg.textContent="Enter ben, david, or julia above before requesting a reset.";return}
+     if(!email){msg.textContent="Enter ben, chinecherem, or julia above before requesting a reset.";return}
      const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/owner.html"});
      msg.textContent=error?"Password reset was not available: "+error.message:"If the account exists, a password reset link has been emailed.";
    }catch(err){msg.textContent="Password reset failed: "+String(err.message||err)}
@@ -150,7 +150,7 @@ button:disabled{opacity:.6;cursor:wait}
  client.auth.onAuthStateChange((event)=>{
    if(event==="PASSWORD_RECOVERY"){$("recovery").hidden=false;dash.hidden=true;login.hidden=true}
  });
- try{await render();if(!session)msg.textContent="Enter ben, david, or julia and your own password."}
+ try{await render();if(!session)msg.textContent="Enter ben, chinecherem, or julia and your own password."}
  catch(err){msg.textContent="The login service could not start: "+String(err.message||err)}
 })();
 </script>
